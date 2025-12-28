@@ -1,20 +1,3 @@
-This error (EOF while scanning triple-quoted string literal) confirms that the code was cut off in the middle of the email section when you pasted it. The file ended before it reached the closing quotes """.
-
-Here is the full code again.
-
-Important: After you paste this into GitHub, scroll to the very bottom of the file. You must see the line if __name__ == "__main__": and the final logic. If the file ends abruptly in the middle of HTML text, the copy failed.
-
-Final Corrected main.py
-Open main.py in GitHub.
-
-Delete everything.
-
-Paste the code below.
-
-Verify the last few lines look exactly like the end of this code block.
-
-Python
-
 import os
 import smtplib
 import requests
