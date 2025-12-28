@@ -17,59 +17,52 @@ HEVY_API_URL = 'https://api.hevyapp.com/v1'
 
 # Global Progression Settings
 DEFAULT_GOAL_REPS = 12
-DEFAULT_INCREMENT = 5
 PROGRESSION_RPE_TRIGGER = 9
 
-# ==========================================
-# EXERCISE DATABASE (Optimization)
-# ==========================================
-# We map keywords to specific increment rules.
-# If an exercise name contains the keyword, it uses that rule.
+# Exercise Customizations
 EXERCISE_CONFIG = {
-    # TIER 1: HEAVY COMPOUNDS (Legs/Back) -> Larger Jumps
+    # Heavy Compounds
     "Deadlift": {"inc": 10, "goal_reps": 8},
     "Squat":    {"inc": 5,  "goal_reps": 10},
     "Leg Press":{"inc": 10, "goal_reps": 12},
-    
-    # TIER 2: MEDIUM COMPOUNDS (Push/Pull) -> Standard Jumps
+    # Medium Compounds
     "Bench Press":    {"inc": 5, "goal_reps": 12},
-    "Overhead Press": {"inc": 2.5, "goal_reps": 12}, # OHP is hard to progress!
+    "Overhead Press": {"inc": 2.5, "goal_reps": 12},
     "Row":            {"inc": 5, "goal_reps": 12},
-    "Pull Up":        {"inc": 2.5, "goal_reps": 10},
-    "Dip":            {"inc": 2.5, "goal_reps": 10},
-
-    # TIER 3: ISOLATION (Arms/Shoulders) -> Micro Jumps or High Reps
-    "Lateral Raise":  {"inc": 0, "goal_reps": 15}, # Force 15 reps before jumping
+    # Isolation
+    "Lateral Raise":  {"inc": 0, "goal_reps": 15}, # Force high reps
     "Curl":           {"inc": 2.5, "goal_reps": 12},
     "Extension":      {"inc": 2.5, "goal_reps": 12},
     "Fly":            {"inc": 2.5, "goal_reps": 15},
-    "Face Pull":      {"inc": 2.5, "goal_reps": 15},
     "Calf":           {"inc": 5, "goal_reps": 15},
 }
 
 def get_config(exercise_title):
-    """Finds the config for an exercise based on name matching."""
     for key, config in EXERCISE_CONFIG.items():
         if key.lower() in exercise_title.lower():
             return config
-    # Default fallback
-    return {"inc": 5, "goal_reps": 12}
+    return {"inc": 5, "goal_reps": 12} # Default
 
-def get_latest_workout():
+def get_recent_workouts():
+    """Fetches the last 30 workouts to find your active routines."""
     headers = {'api-key': HEVY_API_KEY, 'accept': 'application/json'}
     try:
-        # Fetch last 3 to find one with actual data
-        response = requests.get(f"{HEVY_API_URL}/workouts", headers=headers, params={'page': 1, 'pageSize': 3})
+        response = requests.get(f"{HEVY_API_URL}/workouts", headers=headers, params={'page': 1, 'pageSize': 30})
         response.raise_for_status()
-        workouts = response.json().get('workouts', [])
-        
-        for w in workouts:
-            if w.get('exercises'):
-                return w
-        return None
+        return response.json().get('workouts', [])
     except Exception as e:
         print(f"Error fetching Hevy data: {e}")
-        return None
+        return []
+
+def group_by_routine(workouts):
+    """Groups workouts by their title (Routine Name) and keeps only the latest one."""
+    routines = {}
+    for w in workouts:
+        title = w.get('title', 'Unknown Workout')
+        # Only keep the most recent occurrence of each routine title
+        if title not in routines:
+            routines[title] = w
+    return routines
 
 def calculate_next_target(exercise_name, sets):
     if not sets: return None
@@ -78,32 +71,23 @@ def calculate_next_target(exercise_name, sets):
     reps = last_set.get('reps', 0)
     weight_kg = last_set.get('weight_kg', 0)
     if weight_kg is None: weight_kg = 0
-    
-    # Convert to LBS
     weight_lbs = round(weight_kg * 2.20462, 1)
 
-    # Handle RPE
     rpe = last_set.get('rpe')
     if rpe is None: rpe = 8.0
 
-    # GET CUSTOM RULES
     config = get_config(exercise_name)
     goal_reps = config['goal_reps']
     increment = config['inc']
 
     recommendation = {}
     
-    # --- LOGIC ENGINE ---
-    
-    # 1. PASSED: Hit the rep goal with good form
+    # 1. PASSED
     if reps >= goal_reps and rpe <= PROGRESSION_RPE_TRIGGER:
         if increment == 0:
-             # Special case for Lateral Raises etc: "Double Progression"
-             # If increment is 0, it means we don't add weight, we just say "Great job, maybe try next dumbbell up?"
-             # or we force a huge rep jump.
              recommendation = {
                 "action": "MASTERED",
-                "detail": f"You hit {reps} reps! Try the next dumbbell up if you feel ready, or aim for {reps+2} reps.",
+                "detail": f"You hit {reps} reps! Consider moving up a dumbbell size or aim for {reps+2} reps.",
                 "color": "green"
             }
         else:
@@ -113,16 +97,14 @@ def calculate_next_target(exercise_name, sets):
                 "detail": f"Add {increment} lbs. New Target: {int(new_weight)} lbs.",
                 "color": "green"
             }
-
-    # 2. BUILDING: Under rep goal, but feeling good
+    # 2. BUILDING
     elif reps < goal_reps and rpe < 9:
         recommendation = {
             "action": "ADD REPS",
             "detail": f"Keep weight ({int(weight_lbs)} lbs). Push for {min(reps + 2, goal_reps)} reps.",
             "color": "blue"
         }
-
-    # 3. STRUGGLING: Performance dipped significantly
+    # 3. STRUGGLING
     elif reps < (goal_reps - 4) and rpe >= 9.5:
         new_weight = weight_lbs * 0.90
         recommendation = {
@@ -130,8 +112,7 @@ def calculate_next_target(exercise_name, sets):
             "detail": f"Performance dip. Drop to {int(new_weight)} lbs to rebuild volume.",
             "color": "red"
         }
-    
-    # 4. GRINDING: Close to limit
+    # 4. GRINDING
     else:
         recommendation = {
             "action": "MAINTAIN",
@@ -141,14 +122,14 @@ def calculate_next_target(exercise_name, sets):
 
     return {"exercise": exercise_name, "last": f"{reps} reps @ {int(weight_lbs)} lbs (RPE {rpe})", **recommendation}
 
-def send_email(html_content, text_content, workout_title):
+def send_email(html_body, text_body):
     msg = MIMEMultipart("alternative")
     msg['From'] = EMAIL_SENDER
     msg['To'] = EMAIL_RECEIVER
-    msg['Subject'] = f"💪 Next Workout Targets: {workout_title}"
+    msg['Subject'] = "🏋️ Next Workout Menu (All Routines)"
 
-    msg.attach(MIMEText(text_content, 'plain'))
-    msg.attach(MIMEText(html_content, 'html'))
+    msg.attach(MIMEText(text_body, 'plain'))
+    msg.attach(MIMEText(html_body, 'html'))
 
     try:
         server = smtplib.SMTP('smtp.gmail.com', 587)
@@ -165,40 +146,53 @@ if __name__ == "__main__":
         print("Error: HEVY_API_KEY is missing.")
         exit()
 
-    workout = get_latest_workout()
+    print("Fetching workout history...")
+    workouts = get_recent_workouts()
+    latest_routines = group_by_routine(workouts)
     
-    if workout:
-        print(f"Analyzing workout: {workout.get('title')}")
-        html_list_items = ""
-        text_list_items = ""
+    if not latest_routines:
+        print("No workouts found.")
+        exit()
+
+    print(f"Found {len(latest_routines)} active routines: {list(latest_routines.keys())}")
+
+    html_content = """
+    <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+        <h2 style="color: #333;">📋 Your Workout Menu</h2>
+        <p>Targets calculated for your next session of each routine.</p>
+    """
+    text_content = "YOUR WORKOUT MENU\nTargets calculated for next session:\n\n"
+
+    # Iterate through every unique routine found
+    for title, data in latest_routines.items():
         
-        for ex in workout.get('exercises', []):
+        # Header for the Routine
+        html_content += f"""
+        <div style="background-color: #f4f4f4; padding: 10px; margin-top: 20px; border-radius: 5px;">
+            <h3 style="margin: 0; color: #222;">{title}</h3>
+            <span style="font-size: 12px; color: #666;">Last performed: {datetime.fromisoformat(data['start_time'].replace('Z', '+00:00')).strftime('%b %d')}</span>
+        </div>
+        <ul style="list-style-type: none; padding: 0;">
+        """
+        text_content += f"=== {title} ===\n"
+
+        # Calculate targets for this routine
+        for ex in data.get('exercises', []):
             res = calculate_next_target(ex.get('title'), ex.get('sets', []))
             if res:
-                html_list_items += f"""
-                <li style="margin-bottom: 15px; padding-bottom: 15px; border-bottom: 1px solid #eee;">
-                    <strong style="font-size: 16px;">{res['exercise']}</strong><br>
-                    <span style="color:#666; font-size:14px;">Last: {res['last']}</span><br>
+                html_content += f"""
+                <li style="padding: 10px 0; border-bottom: 1px solid #eee;">
+                    <strong>{res['exercise']}</strong><br>
+                    <span style="color:#666; font-size:13px;">Last: {res['last']}</span><br>
                     <strong style="color:{res['color']}; font-size:14px;">👉 {res['action']}</strong>: {res['detail']}
                 </li>
                 """
-                text_list_items += f"[{res['exercise']}]\nLast: {res['last']}\nACTION: {res['action']} - {res['detail']}\n\n"
-
-        html_content = f"""
-        <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
-            <h2 style="color: #333;">🚀 Smart Targets (Optimized)</h2>
-            <p>Based on: <strong>{workout.get('title')}</strong></p>
-            <hr>
-            <ul style="list-style-type: none; padding: 0;">
-                {html_list_items}
-            </ul>
-        </div>
-        """
-        text_content = f"SMART TARGETS\nBased on: {workout.get('title')}\n\n{text_list_items}"
-
-        print("--- PREVIEW ---")
-        print(text_content)
+                text_content += f"[{res['exercise']}] {res['action']}: {res['detail']}\n"
         
-        send_email(html_content, text_content, workout.get('title'))
-    else:
-        print("No workout found.")
+        html_content += "</ul>"
+        text_content += "\n"
+
+    html_content += "</div>"
+
+    # Send the Master Email
+    send_email(html_content, text_content)
