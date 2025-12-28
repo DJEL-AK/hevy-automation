@@ -122,3 +122,62 @@ def send_email(html_body, text_body):
     try:
         server = smtplib.SMTP('smtp.gmail.com', 587)
         server.starttls()
+        server.login(EMAIL_SENDER, EMAIL_PASSWORD)
+        server.send_message(msg)
+        server.quit()
+        print("Email sent successfully!")
+    except Exception as e:
+        print(f"Failed to send email: {e}")
+
+if __name__ == "__main__":
+    if not HEVY_API_KEY:
+        print("Error: HEVY_API_KEY is missing.")
+        exit()
+
+    print("Fetching workout history...")
+    workouts = get_recent_workouts()
+    latest_routines = group_by_routine(workouts)
+    
+    if not latest_routines:
+        print("No workouts found.")
+        exit()
+
+    print(f"Found {len(latest_routines)} active routines: {list(latest_routines.keys())}")
+
+    html_content = """
+    <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+        <h2 style="color: #333;">📋 Your Workout Menu</h2>
+        <p>Targets calculated for your next session of each routine.</p>
+    """
+    text_content = "YOUR WORKOUT MENU\nTargets calculated for next session:\n\n"
+
+    for title, data in latest_routines.items():
+        
+        # Routine Header
+        html_content += f"""
+        <div style="background-color: #f4f4f4; padding: 10px; margin-top: 20px; border-radius: 5px;">
+            <h3 style="margin: 0; color: #222;">{title}</h3>
+            <span style="font-size: 12px; color: #666;">Last: {datetime.fromisoformat(data['start_time'].replace('Z', '+00:00')).strftime('%b %d')}</span>
+        </div>
+        <ul style="list-style-type: none; padding: 0;">
+        """
+        text_content += f"=== {title} ===\n"
+
+        for ex in data.get('exercises', []):
+            res = calculate_next_target(ex.get('title'), ex.get('sets', []))
+            if res:
+                html_content += f"""
+                <li style="padding: 10px 0; border-bottom: 1px solid #eee;">
+                    <strong>{res['exercise']}</strong><br>
+                    <span style="color:#666; font-size:13px;">Last: {res['last']}</span><br>
+                    <strong style="color:{res['color']}; font-size:14px;">👉 {res['action']}</strong>: {res['detail']}
+                </li>
+                """
+                text_content += f"[{res['exercise']}] {res['action']}: {res['detail']}\n"
+        
+        html_content += "</ul>"
+        text_content += "\n"
+
+    html_content += "</div>"
+
+    send_email(html_content, text_content)
