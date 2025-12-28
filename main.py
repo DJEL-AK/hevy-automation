@@ -1,3 +1,20 @@
+This error (EOF while scanning triple-quoted string literal) confirms that the code was cut off in the middle of the email section when you pasted it. The file ended before it reached the closing quotes """.
+
+Here is the full code again.
+
+Important: After you paste this into GitHub, scroll to the very bottom of the file. You must see the line if __name__ == "__main__": and the final logic. If the file ends abruptly in the middle of HTML text, the copy failed.
+
+Final Corrected main.py
+Open main.py in GitHub.
+
+Delete everything.
+
+Paste the code below.
+
+Verify the last few lines look exactly like the end of this code block.
+
+Python
+
 import os
 import smtplib
 import requests
@@ -190,4 +207,15 @@ if __name__ == "__main__":
                 html_content += f"""
                 <li style="padding: 10px 0; border-bottom: 1px solid #eee;">
                     <strong>{res['exercise']}</strong><br>
-                    <span style="color:#666; font-size:13px;">Last: {res
+                    <span style="color:#666; font-size:13px;">Last: {res['last']}</span><br>
+                    <strong style="color:{res['color']}; font-size:14px;">👉 {res['action']}</strong>: {res['detail']}
+                </li>
+                """
+                text_content += f"[{res['exercise']}] {res['action']}: {res['detail']}\n"
+        
+        html_content += "</ul>"
+        text_content += "\n"
+
+    html_content += "</div>"
+
+    send_email(html_content, text_content, start_date, end_date)
