@@ -1,11 +1,10 @@
-name: Daily Hevy Workout Check
+name: Weekly Hevy Workout Check
 
 # Trigger the workflow on a schedule
 on:
   schedule:
-    # Runs at 12:00 PM UTC every day (Adjust as needed)
-    # 12:00 UTC is roughly 6:00 AM CST or 7:00 AM EST
-    - cron: '0 3 * * *'
+    # 03:00 UTC on Monday = 9:00 PM CST on Sunday
+    - cron: '0 3 * * 1'
   
   # Allows you to run this manually from the Actions tab for testing
   workflow_dispatch:
