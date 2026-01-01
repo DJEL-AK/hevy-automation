@@ -1,45 +1,48 @@
 # ==============================================================================
-# 1. IMPORTATIONS (LA BOÎTE À OUTILS)
+# 1. IMPORTATIONS / LIBRARIES
 # ==============================================================================
-# On charge ici tous les modules nécessaires au fonctionnement du script.
-import os                       # Pour accéder aux "Secrets" (mots de passe)
-import requests                 # Pour discuter avec l'API de Hevy
-import resend                   # Pour envoyer l'email via Resend
-from datetime import datetime, timedelta, timezone # Pour gérer les dates et le temps
+import os
+import requests
+import resend
+from datetime import datetime, timedelta, timezone
 
 # ==============================================================================
 # 2. CONFIGURATION & SÉCURITÉ
 # ==============================================================================
-# On récupère les clés API stockées dans les paramètres de GitHub.
+# Récupération des secrets depuis GitHub
 HEVY_API_KEY = os.environ.get("HEVY_API_KEY")
 RESEND_API_KEY = os.environ.get("RESEND_API_KEY")
 EMAIL_RECEIVER = os.environ.get("EMAIL_RECEIVER")
+
+# URL de base de l'API Hevy
 HEVY_API_URL = 'https://api.hevyapp.com/v1'
 
-# Initialisation de Resend avec ta clé
+# Initialisation du client Resend
 resend.api_key = RESEND_API_KEY
 
 # ==============================================================================
-# 3. PARAMÈTRES DE PROGRESSION (TES OBJECTIFS)
+# 3. PARAMÈTRES DE PROGRESSION (EN KG)
 # ==============================================================================
-# C'est ici que tu définis tes règles du jeu.
-GOAL_REPS = 12                  # Objectif : 12 répétitions
-PROGRESSION_RPE_TRIGGER = 9     # Si RPE <= 9, on augmente le poids
-WEIGHT_INCREMENT_LBS = 5        # On ajoute 5 livres quand on réussit
+GOAL_REPS = 12                  # Objectif de répétitions
+PROGRESSION_RPE_TRIGGER = 9     # Seuil RPE pour augmenter la charge
+
+# Poids à ajouter en KG quand l'objectif est atteint
+# 2.5 kg correspond aux petits disques de 1.25 de chaque côté
+WEIGHT_INCREMENT_KG = 2.5       
 
 # ==============================================================================
-# 4. FONCTION : RÉCUPÉRER L'HISTORIQUE (L'ESPION)
+# 4. FONCTION : RÉCUPÉRER L'HISTORIQUE (FETCH DATA)
 # ==============================================================================
 def get_weekly_workouts():
-    """Va chercher les entraînements des 7 derniers jours sur Hevy."""
+    """Récupère les entraînements des 7 derniers jours via l'API Hevy."""
     headers = {'api-key': HEVY_API_KEY, 'accept': 'application/json'}
     all_workouts = []
     
-    # On définit la date limite (il y a 7 jours)
+    # Date limite : il y a 7 jours
     cutoff_date = datetime.now(timezone.utc) - timedelta(days=7)
     print(f"Filtering for workouts after: {cutoff_date.strftime('%Y-%m-%d')}")
 
-    # On parcourt les 3 dernières "pages" d'historique pour être sûr de tout avoir
+    # On parcourt jusqu'à 3 pages d'historique pour être sûr de tout avoir
     for page_num in range(1, 4):
         try:
             params = {'page': page_num, 'pageSize': 10}
@@ -51,17 +54,16 @@ def get_weekly_workouts():
             if not workouts: break
             
             for w in workouts:
-                # Nettoyage de la date
+                # Gestion du format de date (ISO 8601)
                 w_date_str = w.get('start_time', '')
                 if w_date_str.endswith('Z'):
                     w_date_str = w_date_str.replace('Z', '+00:00')
-                
                 try:
                     w_date = datetime.fromisoformat(w_date_str)
                 except ValueError:
                     continue 
 
-                # Si l'entraînement est assez récent, on le garde
+                # Si l'entraînement est récent, on l'ajoute
                 if w_date >= cutoff_date:
                     all_workouts.append(w)
                 else:
@@ -72,101 +74,117 @@ def get_weekly_workouts():
     return all_workouts
 
 # ==============================================================================
-# 5. FONCTION : TRIER PAR ROUTINE (LE NETTOYEUR)
+# 5. FONCTION : GROUPER PAR ROUTINE
 # ==============================================================================
 def group_by_routine(workouts):
-    """
-    Si tu as fait la même routine 2 fois dans la semaine, 
-    cette fonction ne garde que la plus récente.
-    """
+    """Ne garde que la dernière session de chaque routine (ex: Push A)."""
     routines = {}
     for w in workouts:
         title = w.get('title', 'Unknown Workout')
+        # On écrase les anciennes versions pour ne garder que la plus récente
         if title not in routines:
             routines[title] = w
     return routines
 
 # ==============================================================================
-# 6. FONCTION : CALCULER LA CIBLE (LE CERVEAU 🧠)
+# 6. FONCTION : CALCULER LA PROCHAINE CIBLE (LOGIQUE COEUR)
 # ==============================================================================
 def calculate_next_target(exercise_name, sets):
-    """
-    Analyse les séries et décide : Augmenter Poids / Ajouter Reps / Deload.
-    """
+    """Analyse les séries et détermine : Augmenter, Maintenir ou Deload."""
     if not sets: return None
 
-    # --- LOGIQUE : TROUVER LA SÉRIE LA PLUS LOURDE ---
-    # On ignore les échauffements, on prend juste le poids max soulevé
+    # --- ÉTAPE A : TROUVER LA MEILLEURE SÉRIE ---
+    # On cherche la série avec le poids le plus élevé (max weight)
     working_set = max(sets, key=lambda s: s.get('weight_kg') or 0)
     
     reps = working_set.get('reps') or 0
     weight_kg = working_set.get('weight_kg') or 0
     
-    # Conversion KG -> LBS pour l'affichage (car ton script est en mode LBS)
-    weight_lbs = round(weight_kg * 2.20462, 1)
+    # On garde le poids brut en KG
+    current_weight = round(weight_kg, 2)
+
+    # Logique d'affichage propre (ex: 20 kg au lieu de 20.0 kg)
+    if current_weight % 1 == 0:
+        display_weight = int(current_weight)
+    else:
+        display_weight = current_weight
 
     rpe = working_set.get('rpe')
-    if rpe is None: rpe = 8.0 # RPE par défaut si non renseigné
+    if rpe is None: rpe = 8.0 # Valeur par défaut si RPE manquant
 
     recommendation = {}
     if reps == 0: return None
 
-    # --- ARBRE DE DÉCISION ---
+    # --- ÉTAPE B : ARBRE DE DÉCISION (ALGORITHME) ---
     
-    # CAS 1 : SUCCÈS (Objectif atteint avec un peu de marge) -> On augmente le poids
+    # CAS 1 : SUCCÈS (Objectif atteint, RPE correct) -> Augmenter Poids
     if reps >= GOAL_REPS and rpe <= PROGRESSION_RPE_TRIGGER:
-        new_weight = weight_lbs + WEIGHT_INCREMENT_LBS
+        new_weight = current_weight + WEIGHT_INCREMENT_KG
+        
+        # Formatage du nouveau poids cible
+        if new_weight % 1 == 0:
+            disp_new = int(new_weight)
+        else:
+            disp_new = new_weight
+
         recommendation = {
             "action": "INCREASE WEIGHT",
-            "detail": f"Add {WEIGHT_INCREMENT_LBS} lbs",
-            "target_display": f"Target: {int(new_weight)} lbs",
-            "badge_color": "#d4edda", # Vert clair
-            "text_color": "#155724"   # Vert foncé
+            "detail": f"Add {WEIGHT_INCREMENT_KG} kg",
+            "target_display": f"Target: {disp_new} kg",
+            "badge_color": "#d4edda", # Vert
+            "text_color": "#155724"   
         }
     
-    # CAS 2 : CONSTRUCTION (Pas encore 12 reps, mais ça va) -> On ajoute des reps
+    # CAS 2 : CONSTRUCTION (Reps manquantes mais RPE facile) -> Ajouter Reps
     elif reps < GOAL_REPS and rpe < 9:
         recommendation = {
             "action": "ADD REPS",
-            "detail": f"Keep {int(weight_lbs)} lbs",
+            "detail": f"Keep {display_weight} kg",
             "target_display": f"Target: {min(reps + 2, GOAL_REPS)} reps",
-            "badge_color": "#cce5ff", # Bleu clair
-            "text_color": "#004085"   # Bleu foncé
+            "badge_color": "#cce5ff", # Bleu
+            "text_color": "#004085"   
         }
     
-    # CAS 3 : DIFFICULTÉ (Moins de 8 reps et c'était très dur) -> On baisse le poids
+    # CAS 3 : DIFFICULTÉ (Échec ou trop dur) -> Deload (-10%)
     elif reps < (GOAL_REPS - 4) and rpe >= 9.5:
-        new_weight = weight_lbs * 0.90 # -10%
+        new_weight = round(current_weight * 0.90, 2)
+        
+        if new_weight % 1 == 0:
+            disp_new = int(new_weight)
+        else:
+            disp_new = new_weight
+
         recommendation = {
             "action": "DELOAD",
             "detail": "Performance Dip",
-            "target_display": f"Reset to: {int(new_weight)} lbs",
-            "badge_color": "#f8d7da", # Rouge clair
-            "text_color": "#721c24"   # Rouge foncé
+            "target_display": f"Reset to: {disp_new} kg",
+            "badge_color": "#f8d7da", # Rouge
+            "text_color": "#721c24"   
         }
     
-    # CAS 4 : MAINTIEN (Tout le reste) -> On essaie juste de faire mieux
+    # CAS 4 : MAINTIEN (Cas par défaut)
     else:
         recommendation = {
             "action": "MAINTAIN",
-            "detail": f"Keep {int(weight_lbs)} lbs",
+            "detail": f"Keep {display_weight} kg",
             "target_display": "Squeeze 1 more rep",
-            "badge_color": "#e2e3e5", # Gris clair
-            "text_color": "#383d41"   # Gris foncé
+            "badge_color": "#e2e3e5", # Gris
+            "text_color": "#383d41"   
         }
 
-    return {"exercise": exercise_name, "last": f"{reps} @ {int(weight_lbs)} lbs (RPE {rpe})", **recommendation}
+    return {"exercise": exercise_name, "last": f"{reps} @ {display_weight} kg (RPE {rpe})", **recommendation}
 
 # ==============================================================================
-# 7. FONCTION : ENVOYER L'EMAIL (LE FACTEUR VIA RESEND)
+# 7. FONCTION : ENVOI DE L'EMAIL (VIA RESEND)
 # ==============================================================================
 def send_email_resend(html_body, text_body, start_date, end_date):
     print("Sending email via Resend...")
     
     try:
+        # Configuration de l'email
         params = {
-            "from": "onboarding@resend.dev", # Adresse obligatoire pour le compte gratuit
-            "to": [EMAIL_RECEIVER],
+            "from": "onboarding@resend.dev", # Adresse obligatoire pour le mode gratuit
+            "to": [EMAIL_RECEIVER],          # Ton email (doit être le même que ton compte Resend)
             "subject": f"Weekly Training Plan ({start_date} - {end_date})",
             "html": html_body,
             "text": text_body,
@@ -179,10 +197,10 @@ def send_email_resend(html_body, text_body, start_date, end_date):
         print(f"Failed to send email: {e}")
 
 # ==============================================================================
-# 8. EXÉCUTION PRINCIPALE (LE CHEF D'ORCHESTRE)
+# 8. EXÉCUTION PRINCIPALE (MAIN)
 # ==============================================================================
 if __name__ == "__main__":
-    # 1. Vérification des clés
+    # Vérification de la présence des clés API
     if not HEVY_API_KEY:
         print("Error: HEVY_API_KEY is missing.")
         exit()
@@ -190,7 +208,6 @@ if __name__ == "__main__":
         print("Error: RESEND_API_KEY is missing.")
         exit()
 
-    # 2. Récupération des données
     print("Fetching last 7 days of workouts...")
     workouts = get_weekly_workouts()
     latest_routines = group_by_routine(workouts)
@@ -201,11 +218,11 @@ if __name__ == "__main__":
 
     print(f"Found {len(latest_routines)} routines from this week.")
 
-    # 3. Préparation des dates pour l'affichage
+    # Préparation des dates pour le titre de l'email
     end_date = datetime.now().strftime('%b %d')
     start_date = (datetime.now() - timedelta(days=7)).strftime('%b %d')
 
-    # 4. Construction du HEADER de l'email HTML
+    # --- GÉNÉRATION DU HEADER HTML ---
     html_content = f"""
     <!DOCTYPE html>
     <html>
@@ -226,12 +243,12 @@ if __name__ == "__main__":
     
     text_content = f"WEEKLY TRAINING PLAN ({start_date} - {end_date})\n\n"
 
-    # 5. Boucle sur chaque routine et chaque exercice
+    # Boucle sur chaque Routine (ex: Push, Pull...)
     for title, data in latest_routines.items():
         raw_date = data['start_time'].replace('Z', '+00:00')
         display_date = datetime.fromisoformat(raw_date).strftime('%A')
 
-        # Titre de la Routine (ex: "Push A")
+        # Ajout du titre de la routine dans le HTML
         html_content += f"""
         <div style="margin-bottom: 30px;">
             <div style="border-bottom: 2px solid #eee; padding-bottom: 10px; margin-bottom: 15px;">
@@ -241,11 +258,12 @@ if __name__ == "__main__":
         """
         text_content += f"=== {title} ({display_date}) ===\n"
 
-        # Analyse de chaque exercice
+        # Boucle sur chaque Exercice de la routine
         for ex in data.get('exercises', []):
             res = calculate_next_target(ex.get('title'), ex.get('sets', []))
             if res:
-                # Style du petit badge (Vert/Bleu/Rouge) - Découpé pour éviter les erreurs
+                # Définition du style CSS pour le badge de recommandation
+                # (Divisé en plusieurs lignes pour éviter les erreurs de copier-coller)
                 badge_style = (
                     f"background-color:{res['badge_color']}; "
                     f"color:{res['text_color']}; "
@@ -253,7 +271,7 @@ if __name__ == "__main__":
                     "font-weight: bold; text-transform: uppercase; letter-spacing: 0.5px;"
                 )
                 
-                # Ajout de la ligne dans l'email HTML
+                # Création du bloc HTML pour l'exercice
                 html_content += f"""
                 <div style="padding: 12px 0; border-bottom: 1px solid #f0f0f0;">
                     <table width="100%" border="0">
@@ -275,7 +293,7 @@ if __name__ == "__main__":
         html_content += "</div>"
         text_content += "\n"
 
-    # 6. Pied de page (Footer)
+    # --- PIED DE PAGE HTML (FOOTER) ---
     html_content += """
                             </td>
                         </tr>
@@ -292,5 +310,5 @@ if __name__ == "__main__":
     </html>
     """
 
-    # 7. Envoi final
+    # Envoi final
     send_email_resend(html_content, text_content, start_date, end_date)
