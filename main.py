@@ -24,7 +24,7 @@ WEIGHT_INCREMENT_KG = 2.5
 def get_weekly_workouts():
     headers = {'api-key': HEVY_API_KEY, 'accept': 'application/json'}
     all_workouts = []
-    cutoff_date = datetime.now(timezone.utc) - timedelta(days=7)
+    cutoff_date = datetime.now(timezone.utc) - timedelta(days=30)
     print(f"Filtering for workouts after: {cutoff_date.strftime('%Y-%m-%d')}")
 
     for page_num in range(1, 4):
@@ -218,27 +218,4 @@ if __name__ == "__main__":
         for ex in data.get('exercises', []):
             res = calculate_next_target(ex.get('title'), ex.get('sets', []))
             if res:
-                badge_style = f"background-color:{res['badge_color']}; color:{res['text_color']}; padding: 4px 8px; border-radius: 4px; font-size: 11px; font-weight: bold; text-transform: uppercase; letter-spacing: 0.5px;"
-                
-                html_content += f"""
-                <div style="padding: 12px 0; border-bottom: 1px solid #f0f0f0;">
-                    <table width="100%" border="0">
-                        <tr>
-                            <td width="60%" valign="top">
-                                <strong style="color:#222; font-size:15px; display:block; margin-bottom:4px;">{res['exercise']}</strong>
-                                <span style="color:#999; font-size:13px;">Top Set: {res['last']}</span>
-                            </td>
-                            <td width="40%" align="right" valign="top">
-                                <span style="{badge_style}">{res['action']}</span>
-                                <div style="margin-top:5px; font-size:13px; color:#444; font-weight:600;">{res['target_display']}</div>
-                            </td>
-                        </tr>
-                    </table>
-                </div>
-                """
-                text_content += f"[{res['exercise']}] {res['action']} -> {res['target_display']}\n"
-        
-        html_content += "</div>"
-        text_content += "\n"
-
-    html_content += """
+                badge_style = f"background-color:{res['badge_color']}; color:{res['text_color']}; padding: 4px 8px; border-radius: 4px; font-size: 11px; font-weight: bold; text-transform: uppercase; letter-spacing: 0.
