@@ -17,14 +17,12 @@ HEVY_API_URL = 'https://api.hevyapp.com/v1'
 # Global Progression Settings
 GOAL_REPS = 12
 PROGRESSION_RPE_TRIGGER = 9
-
-# Poids en KG. 
-WEIGHT_INCREMENT_KG = 2.5
+WEIGHT_INCREMENT_LBS = 5
 
 def get_weekly_workouts():
     headers = {'api-key': HEVY_API_KEY, 'accept': 'application/json'}
     all_workouts = []
-    cutoff_date = datetime.now(timezone.utc) - timedelta(days=30)
+    cutoff_date = datetime.now(timezone.utc) - timedelta(days=7)
     print(f"Filtering for workouts after: {cutoff_date.strftime('%Y-%m-%d')}")
 
     for page_num in range(1, 4):
@@ -67,23 +65,17 @@ def group_by_routine(workouts):
 def calculate_next_target(exercise_name, sets):
     if not sets: return None
 
-    # --- UPDATED LOGIC: FIND HEAVIEST SET (KG) ---
+    # --- UPDATED LOGIC: FIND HEAVIEST SET ---
+    # Instead of taking the last set [-1], we look for the set with the highest weight.
+    # We use 'or 0' to handle cases where weight might be None (bodyweight).
     working_set = max(sets, key=lambda s: s.get('weight_kg') or 0)
     
     reps = working_set.get('reps')
     if reps is None: reps = 0
     
-    # On récupère le poids directement en KG
     weight_kg = working_set.get('weight_kg')
     if weight_kg is None: weight_kg = 0
-    
-    current_weight = round(weight_kg, 2)
-    
-    # CORRECTION ICI : Méthode universelle pour afficher proprement (20 ou 22.5)
-    if current_weight % 1 == 0:
-        display_weight = int(current_weight)
-    else:
-        display_weight = current_weight
+    weight_lbs = round(weight_kg * 2.20462, 1)
 
     rpe = working_set.get('rpe')
     if rpe is None: rpe = 8.0
@@ -93,55 +85,41 @@ def calculate_next_target(exercise_name, sets):
 
     # Logic Engine
     if reps >= GOAL_REPS and rpe <= PROGRESSION_RPE_TRIGGER:
-        new_weight = current_weight + WEIGHT_INCREMENT_KG
-        
-        # Correction affichage nouveau poids
-        if new_weight % 1 == 0:
-            disp_new = int(new_weight)
-        else:
-            disp_new = new_weight
-        
+        new_weight = weight_lbs + WEIGHT_INCREMENT_LBS
         recommendation = {
             "action": "INCREASE WEIGHT",
-            "detail": f"Add {WEIGHT_INCREMENT_KG} kg",
-            "target_display": f"Target: {disp_new} kg",
+            "detail": f"Add {WEIGHT_INCREMENT_LBS} lbs",
+            "target_display": f"Target: {int(new_weight)} lbs",
             "badge_color": "#d4edda", # Light Green bg
             "text_color": "#155724"   # Dark Green text
         }
     elif reps < GOAL_REPS and rpe < 9:
         recommendation = {
             "action": "ADD REPS",
-            "detail": f"Keep {display_weight} kg",
+            "detail": f"Keep {int(weight_lbs)} lbs",
             "target_display": f"Target: {min(reps + 2, GOAL_REPS)} reps",
             "badge_color": "#cce5ff", # Light Blue bg
             "text_color": "#004085"   # Dark Blue text
         }
     elif reps < (GOAL_REPS - 4) and rpe >= 9.5:
-        new_weight = round(current_weight * 0.90, 2)
-        
-        # Correction affichage nouveau poids
-        if new_weight % 1 == 0:
-            disp_new = int(new_weight)
-        else:
-            disp_new = new_weight
-        
+        new_weight = weight_lbs * 0.90
         recommendation = {
             "action": "DELOAD",
             "detail": "Performance Dip",
-            "target_display": f"Reset to: {disp_new} kg",
+            "target_display": f"Reset to: {int(new_weight)} lbs",
             "badge_color": "#f8d7da", # Light Red bg
             "text_color": "#721c24"   # Dark Red text
         }
     else:
         recommendation = {
             "action": "MAINTAIN",
-            "detail": f"Keep {display_weight} kg",
+            "detail": f"Keep {int(weight_lbs)} lbs",
             "target_display": "Squeeze 1 more rep",
             "badge_color": "#e2e3e5", # Light Gray bg
             "text_color": "#383d41"   # Dark Gray text
         }
 
-    return {"exercise": exercise_name, "last": f"{reps} @ {display_weight} kg (RPE {rpe})", **recommendation}
+    return {"exercise": exercise_name, "last": f"{reps} @ {int(weight_lbs)} lbs (RPE {rpe})", **recommendation}
 
 def send_email(html_body, text_body, start_date, end_date):
     msg = MIMEMultipart("alternative")
@@ -175,4 +153,86 @@ if __name__ == "__main__":
         print("No workouts found in the last 7 days.")
         exit()
 
-    print(f
+    print(f"Found {len(latest_routines)} routines from this week.")
+
+    end_date = datetime.now().strftime('%b %d')
+    start_date = (datetime.now() - timedelta(days=7)).strftime('%b %d')
+
+    # --- HTML HEADER ---
+    html_content = f"""
+    <!DOCTYPE html>
+    <html>
+    <body style="margin:0; padding:0; background-color:#f6f9fc; font-family:-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;">
+        <table width="100%" border="0" cellspacing="0" cellpadding="0" style="background-color:#f6f9fc; padding: 20px;">
+            <tr>
+                <td align="center">
+                    <table width="600" border="0" cellspacing="0" cellpadding="0" style="background-color:#ffffff; border-radius:12px; overflow:hidden; box-shadow: 0 4px 6px rgba(0,0,0,0.05);">
+                        <tr>
+                            <td style="background-color:#212529; padding: 30px 40px; text-align:center;">
+                                <h1 style="margin:0; color:#ffffff; font-size:24px; font-weight:700;">Next Week's Targets</h1>
+                                <p style="margin:10px 0 0 0; color:#adb5bd; font-size:14px;">Review of {start_date} - {end_date}</p>
+                            </td>
+                        </tr>
+                        <tr>
+                            <td style="padding: 40px;">
+    """
+    
+    text_content = f"WEEKLY TRAINING PLAN ({start_date} - {end_date})\n\n"
+
+    for title, data in latest_routines.items():
+        raw_date = data['start_time'].replace('Z', '+00:00')
+        display_date = datetime.fromisoformat(raw_date).strftime('%A')
+
+        # ROUTINE HEADER
+        html_content += f"""
+        <div style="margin-bottom: 30px;">
+            <div style="border-bottom: 2px solid #eee; padding-bottom: 10px; margin-bottom: 15px;">
+                <h2 style="margin:0; color:#333; font-size:18px;">{title}</h2>
+                <span style="font-size:12px; color:#888; text-transform:uppercase; letter-spacing:1px; font-weight:bold;">Last Session: {display_date}</span>
+            </div>
+        """
+        text_content += f"=== {title} ({display_date}) ===\n"
+
+        for ex in data.get('exercises', []):
+            res = calculate_next_target(ex.get('title'), ex.get('sets', []))
+            if res:
+                badge_style = f"background-color:{res['badge_color']}; color:{res['text_color']}; padding: 4px 8px; border-radius: 4px; font-size: 11px; font-weight: bold; text-transform: uppercase; letter-spacing: 0.5px;"
+                
+                html_content += f"""
+                <div style="padding: 12px 0; border-bottom: 1px solid #f0f0f0;">
+                    <table width="100%" border="0">
+                        <tr>
+                            <td width="60%" valign="top">
+                                <strong style="color:#222; font-size:15px; display:block; margin-bottom:4px;">{res['exercise']}</strong>
+                                <span style="color:#999; font-size:13px;">Top Set: {res['last']}</span>
+                            </td>
+                            <td width="40%" align="right" valign="top">
+                                <span style="{badge_style}">{res['action']}</span>
+                                <div style="margin-top:5px; font-size:13px; color:#444; font-weight:600;">{res['target_display']}</div>
+                            </td>
+                        </tr>
+                    </table>
+                </div>
+                """
+                text_content += f"[{res['exercise']}] {res['action']} -> {res['target_display']}\n"
+        
+        html_content += "</div>"
+        text_content += "\n"
+
+    html_content += """
+                            </td>
+                        </tr>
+                        <tr>
+                            <td style="background-color:#f8f9fa; padding: 20px; text-align:center; border-top: 1px solid #eee;">
+                                <p style="margin:0; color:#999; font-size:12px;">Generated by Hevy Automation Script</p>
+                            </td>
+                        </tr>
+                    </table>
+                </td>
+            </tr>
+        </table>
+    </body>
+    </html>
+    """
+
+    send_email(html_content, text_content, start_date, end_date)
