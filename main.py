@@ -39,7 +39,7 @@ def get_weekly_workouts():
     all_workouts = []
     
     # Date limite : il y a 7 jours
-    cutoff_date = datetime.now(timezone.utc) - timedelta(days=7)
+    cutoff_date = datetime.now(timezone.utc) - timedelta(days=30)
     print(f"Filtering for workouts after: {cutoff_date.strftime('%Y-%m-%d')}")
 
     # On parcourt jusqu'à 3 pages d'historique pour être sûr de tout avoir
