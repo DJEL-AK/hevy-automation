@@ -175,47 +175,4 @@ if __name__ == "__main__":
         print("No workouts found in the last 7 days.")
         exit()
 
-    print(f"Found {len(latest_routines)} routines from this week.")
-
-    end_date = datetime.now().strftime('%b %d')
-    start_date = (datetime.now() - timedelta(days=7)).strftime('%b %d')
-
-    # --- HTML HEADER ---
-    html_content = f"""
-    <!DOCTYPE html>
-    <html>
-    <body style="margin:0; padding:0; background-color:#f6f9fc; font-family:-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;">
-        <table width="100%" border="0" cellspacing="0" cellpadding="0" style="background-color:#f6f9fc; padding: 20px;">
-            <tr>
-                <td align="center">
-                    <table width="600" border="0" cellspacing="0" cellpadding="0" style="background-color:#ffffff; border-radius:12px; overflow:hidden; box-shadow: 0 4px 6px rgba(0,0,0,0.05);">
-                        <tr>
-                            <td style="background-color:#212529; padding: 30px 40px; text-align:center;">
-                                <h1 style="margin:0; color:#ffffff; font-size:24px; font-weight:700;">Next Week's Targets</h1>
-                                <p style="margin:10px 0 0 0; color:#adb5bd; font-size:14px;">Review of {start_date} - {end_date}</p>
-                            </td>
-                        </tr>
-                        <tr>
-                            <td style="padding: 40px;">
-    """
-    
-    text_content = f"WEEKLY TRAINING PLAN ({start_date} - {end_date})\n\n"
-
-    for title, data in latest_routines.items():
-        raw_date = data['start_time'].replace('Z', '+00:00')
-        display_date = datetime.fromisoformat(raw_date).strftime('%A')
-
-        # ROUTINE HEADER
-        html_content += f"""
-        <div style="margin-bottom: 30px;">
-            <div style="border-bottom: 2px solid #eee; padding-bottom: 10px; margin-bottom: 15px;">
-                <h2 style="margin:0; color:#333; font-size:18px;">{title}</h2>
-                <span style="font-size:12px; color:#888; text-transform:uppercase; letter-spacing:1px; font-weight:bold;">Last Session: {display_date}</span>
-            </div>
-        """
-        text_content += f"=== {title} ({display_date}) ===\n"
-
-        for ex in data.get('exercises', []):
-            res = calculate_next_target(ex.get('title'), ex.get('sets', []))
-            if res:
-                badge_style = f"background-color:{res['badge_color']}; color:{res['text_color']}; padding: 4px 8px; border-radius: 4px; font-size: 11px; font-weight: bold; text-transform: uppercase; letter-spacing: 0.
+    print(f
