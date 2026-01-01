@@ -1,18 +1,18 @@
 import os
-import smtplib
 import requests
-from email.mime.text import MIMEText
-from email.mime.multipart import MIMEMultipart
+import resend  # Nouvelle importation
 from datetime import datetime, timedelta, timezone
 
 # ==========================================
 # CONFIGURATION
 # ==========================================
 HEVY_API_KEY = os.environ.get("HEVY_API_KEY")
-EMAIL_SENDER = os.environ.get("EMAIL_SENDER")
-EMAIL_PASSWORD = os.environ.get("EMAIL_PASSWORD")
+RESEND_API_KEY = os.environ.get("RESEND_API_KEY") # Nouvelle clé
 EMAIL_RECEIVER = os.environ.get("EMAIL_RECEIVER")
 HEVY_API_URL = 'https://api.hevyapp.com/v1'
+
+# Configuration Resend
+resend.api_key = RESEND_API_KEY
 
 # Global Progression Settings
 GOAL_REPS = 12
@@ -65,9 +65,7 @@ def group_by_routine(workouts):
 def calculate_next_target(exercise_name, sets):
     if not sets: return None
 
-    # --- UPDATED LOGIC: FIND HEAVIEST SET ---
-    # Instead of taking the last set [-1], we look for the set with the highest weight.
-    # We use 'or 0' to handle cases where weight might be None (bodyweight).
+    # Logic: Heaviest Set
     working_set = max(sets, key=lambda s: s.get('weight_kg') or 0)
     
     reps = working_set.get('reps')
@@ -90,16 +88,16 @@ def calculate_next_target(exercise_name, sets):
             "action": "INCREASE WEIGHT",
             "detail": f"Add {WEIGHT_INCREMENT_LBS} lbs",
             "target_display": f"Target: {int(new_weight)} lbs",
-            "badge_color": "#d4edda", # Light Green bg
-            "text_color": "#155724"   # Dark Green text
+            "badge_color": "#d4edda", 
+            "text_color": "#155724"
         }
     elif reps < GOAL_REPS and rpe < 9:
         recommendation = {
             "action": "ADD REPS",
             "detail": f"Keep {int(weight_lbs)} lbs",
             "target_display": f"Target: {min(reps + 2, GOAL_REPS)} reps",
-            "badge_color": "#cce5ff", # Light Blue bg
-            "text_color": "#004085"   # Dark Blue text
+            "badge_color": "#cce5ff", 
+            "text_color": "#004085"
         }
     elif reps < (GOAL_REPS - 4) and rpe >= 9.5:
         new_weight = weight_lbs * 0.90
@@ -107,42 +105,44 @@ def calculate_next_target(exercise_name, sets):
             "action": "DELOAD",
             "detail": "Performance Dip",
             "target_display": f"Reset to: {int(new_weight)} lbs",
-            "badge_color": "#f8d7da", # Light Red bg
-            "text_color": "#721c24"   # Dark Red text
+            "badge_color": "#f8d7da", 
+            "text_color": "#721c24"
         }
     else:
         recommendation = {
             "action": "MAINTAIN",
             "detail": f"Keep {int(weight_lbs)} lbs",
             "target_display": "Squeeze 1 more rep",
-            "badge_color": "#e2e3e5", # Light Gray bg
-            "text_color": "#383d41"   # Dark Gray text
+            "badge_color": "#e2e3e5", 
+            "text_color": "#383d41"
         }
 
     return {"exercise": exercise_name, "last": f"{reps} @ {int(weight_lbs)} lbs (RPE {rpe})", **recommendation}
 
-def send_email(html_body, text_body, start_date, end_date):
-    msg = MIMEMultipart("alternative")
-    msg['From'] = EMAIL_SENDER
-    msg['To'] = EMAIL_RECEIVER
-    msg['Subject'] = f"Weekly Training Plan ({start_date} - {end_date})"
-
-    msg.attach(MIMEText(text_body, 'plain'))
-    msg.attach(MIMEText(html_body, 'html'))
-
+def send_email_resend(html_body, text_body, start_date, end_date):
+    print("Sending email via Resend...")
+    
     try:
-        server = smtplib.SMTP('smtp.gmail.com', 587)
-        server.starttls()
-        server.login(EMAIL_SENDER, EMAIL_PASSWORD)
-        server.send_message(msg)
-        server.quit()
+        params = {
+            "from": "onboarding@resend.dev", # Obligatoire pour le compte gratuit
+            "to": [EMAIL_RECEIVER],
+            "subject": f"Weekly Training Plan ({start_date} - {end_date})",
+            "html": html_body,
+            "text": text_body,
+        }
+
+        email = resend.Emails.send(params)
         print("Email sent successfully!")
+        print(email)
     except Exception as e:
         print(f"Failed to send email: {e}")
 
 if __name__ == "__main__":
     if not HEVY_API_KEY:
         print("Error: HEVY_API_KEY is missing.")
+        exit()
+    if not RESEND_API_KEY:
+        print("Error: RESEND_API_KEY is missing.")
         exit()
 
     print("Fetching last 7 days of workouts...")
@@ -196,7 +196,12 @@ if __name__ == "__main__":
         for ex in data.get('exercises', []):
             res = calculate_next_target(ex.get('title'), ex.get('sets', []))
             if res:
-                badge_style = f"background-color:{res['badge_color']}; color:{res['text_color']}; padding: 4px 8px; border-radius: 4px; font-size: 11px; font-weight: bold; text-transform: uppercase; letter-spacing: 0.5px;"
+                badge_style = (
+                    f"background-color:{res['badge_color']}; "
+                    f"color:{res['text_color']}; "
+                    "padding: 4px 8px; border-radius: 4px; font-size: 11px; "
+                    "font-weight: bold; text-transform: uppercase; letter-spacing: 0.5px;"
+                )
                 
                 html_content += f"""
                 <div style="padding: 12px 0; border-bottom: 1px solid #f0f0f0;">
@@ -235,4 +240,4 @@ if __name__ == "__main__":
     </html>
     """
 
-    send_email(html_content, text_content, start_date, end_date)
+    send_email_resend(html_content, text_content, start_date, end_date)
